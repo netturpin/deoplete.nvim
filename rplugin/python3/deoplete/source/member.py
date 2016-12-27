@@ -8,13 +8,14 @@ from .base import Base
 
 import re
 from deoplete.util import \
-    get_buffer_config, convert2list, parse_buffer_pattern, set_pattern
+    get_buffer_config, convert2list, parse_buffer_pattern, \
+    set_pattern, getlines
 
 
 class Source(Base):
 
     def __init__(self, vim):
-        Base.__init__(self, vim)
+        super().__init__(vim)
 
         self.name = 'member'
         self.mark = '[M]'
@@ -55,7 +56,7 @@ class Source(Base):
     def gather_candidates(self, context):
         return [{'word': x} for x in
                 parse_buffer_pattern(
-                    self.vim.current.buffer[:],
+                    getlines(self.vim),
                     r'(?<=' + re.escape(self.__prefix) + r')\w+(?:\(\)?)?',
                     context['complete_str']
                 )

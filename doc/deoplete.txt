@@ -22,6 +22,7 @@ FILTERS			|deoplete-filters|
 External sources	|deoplete-external-sources|
 External plugins	|deoplete-external-plugins|
 External omnifuncs	|deoplete-external-omnifuncs|
+Vim8 async API support	|deoplete-vim8|
 FAQ			|deoplete-faq|
 Compatibility		|deoplete-compatibility|
 
@@ -184,7 +185,7 @@ g:deoplete#auto_complete_delay
 		Delay the completion after input in milliseconds.
 		Requires |+timers| (Neovim 0.1.5)
 
-		Default value: 100
+		Default value: 150
 
 					*g:deoplete#auto_refresh_delay*
 g:deoplete#auto_refresh_delay
@@ -193,6 +194,16 @@ g:deoplete#auto_refresh_delay
 		|g:deoplete#enable_refresh_always|
 
 		Default value: 50
+
+					*g:deoplete#skip_chars*
+g:deoplete#skip_chars
+		The list of skip characters in the auto completion.
+
+		Default value: []
+
+					*b:deoplete_skip_chars*
+b:deoplete_skip_chars
+		Buffer local variable of |g:deoplete#skip_chars|.
 
 						*g:deoplete#keyword_patterns*
 g:deoplete#keyword_patterns
@@ -289,7 +300,7 @@ g:deoplete#omni#input_patterns
 		If this pattern is not defined or empty pattern, deoplete
 		does not call 'omnifunc'.
 		Note: Some omnifuncs which moves the cursor is not worked.
-		For example, htmlcomplete, vim-go, etc...
+		For example, htmlcomplete, phpcomplete, etc...
 		Note: It is Python3 regexp.
 >
 		let g:deoplete#omni#input_patterns = {}
@@ -307,13 +318,26 @@ b:deoplete_omni_input_patterns
 
 						*g:deoplete#omni#functions*
 g:deoplete#omni#functions
-		This dictionary records the functions to Omni completion.
-		This is the omnifunc name list every file type.
-		If this pattern is not defined or empty pattern, deoplete use
-		'omnifunc'.
+		It defines a dictionary for omni completion with deoplete:
+		- `keys` consist of filetypes;
+		- `values` consist of either a string containing a single
+		  omnifunc or a list with omnifuncs to be used for each
+		  filetype.
+		In case there is no omnifunc setting for the current filetype
+		in the dictionary, deoplete will use the 'omnifunc' setting.
+>
+		let g:deoplete#omni#functions = {}
+		let g:deoplete#omni#functions.ruby = 'rubycomplete#Complete'
+		let g:deoplete#omni#functions.javascript = [
+		  \ 'tern#Complete',
+		  \ 'jspc#omni'
+		  \]
+<
 		Note: It supports context filetype feature instead of
 		'omnifunc'.  You can call the omnifunc in the embedded
 		language.
+		Note: For omnifunctions to work with deoplete, it's necessary
+		to setup the g:deoplete#omni#input_patterns setting.
 
 						*b:deoplete_omni_functions*
 b:deoplete_omni_functions
@@ -334,6 +358,13 @@ g:deoplete#tag#cache_limit_size
 
 		Default value: 500000
 
+				*g:deoplete#buffer#require_same_filetype*
+g:deoplete#buffer#require_same_filetype
+		If it is zero, deoplete collects keywords from buffers of any
+		filetype
+
+		Default value: 1
+
 ------------------------------------------------------------------------------
 FUNCTIONS 						*deoplete-functions*
 
@@ -348,6 +379,8 @@ deoplete#initialize()
 deoplete#enable()
 		Enable deoplete auto completion.
 		Note: It changes the global state.
+		Note: It does not work in lazy loading.  You should use
+		|g:deoplete#enable_at_startup| instead.
 
 							*deoplete#disable()*
 deoplete#disable()
@@ -407,7 +440,9 @@ deoplete#custom#set({source-name}, {option-name}, {value})
 		call deoplete#custom#set('omni', 'mark', '')
 
 		" Enable jedi source debug messages
-		call deoplete#custom#set('jedi', 'debug_enabled', 1)
+		" let g:deoplete#enable_profile = 1
+		" call deoplete#enable_logging('DEBUG', 'deoplete.log')
+		" call deoplete#custom#set('jedi', 'debug_enabled', 1)
 <
 						*deoplete#enable_logging()*
 deoplete#enable_logging({level}, {logfile})
@@ -498,8 +533,14 @@ EXAMPLES						*deoplete-examples*
 SOURCES							*deoplete-sources*
 
 buffer						*deoplete-source-buffer*
-		It collects keywords from current buffer and the buffers which
-		have same 'filetype'.
+		It collects keywords from current buffer and the opened
+		buffers which have same 'filetype'.
+
+		Note: It does not collect keywords from not loaded buffer.
+		For example, if you open file by "nvim A B".  A is already
+		loaded, but B is not loaded.  So buffer source cannot collect
+		the keywords in B until you switch to buffer B.
+
 		Note: It takes time to get the candidates in the first time if
 		you want to edit the large files(like Vim 22000 lines eval.c).
 
@@ -518,7 +559,21 @@ omni							*deoplete-source-omni*
 		Note: It is not asynchronous.
 
 dictionary					*deoplete-source-dictionary*
-		This source collects keywords from 'dictionary'.
+		This source collects |g:deoplete#keyword_patterns| keywords
+		from 'dictionary'.
+
+around						    *deoplete-source-around*
+		This source collects candidates around the cursor, so inside
+		current buffer only. Plus, it searches keywords in |:changes|
+		command output. Therefore, this source is about to provide the
+		words that are in sight or the ones you've just typed somewhere
+		else.
+
+		Legend: You can see where the words came from. Next to the
+		source mark [~] these suffixes are used:
+		    A - above the cursor
+		    B - below the cursor
+		    C - in changes
 
 ==============================================================================
 FILTERS							*deoplete-filters*
@@ -572,13 +627,13 @@ converter_auto_delimiter
 
 				*deoplete-filter-converter_auto_paren*
 converter_auto_paren
-		It adds parenthes character in a candidate's word.
+		It adds parentheses character in a candidate's word.
 		It is useful if you use |neopairs| or |neosnippet|
 		plugins.
 
 				*deoplete-filter-converter_remove_paren*
 converter_remove_paren
-		It removes parenthes character in a candidate's word.
+		It removes parentheses character in a candidate's word.
 
 				*deoplete-filter-converter_truncate_abbr*
 converter_truncate_abbr
@@ -607,14 +662,13 @@ SOURCE ATTRIBUTES				*deoplete-source-attributes*
 
 					*deoplete-source-attribute-__init__*
 __init__	(Function)
-		Source constructor.  It will be called in initializing.  It
-		must call Base constructor.  This function takes {self} and
+		Source constructor.  It is always called in initializing.  It
+		must call super() constructor.  This function takes {self} and
 		{vim} as its parameters.
 
 					*deoplete-source-attribute-name*
 name		(String)			(Required)
 		The name of a source.
-		Note: It must be same of the source filaname.
 
 					*deoplete-source-attribute-filetypes*
 filetypes	(List)				(Optional)
@@ -752,15 +806,16 @@ on_post_filter
 
 					*deoplete-source-attribute-on_event*
 on_event	(Function)			(Optional)
-		It is called when |BufRead|, |BufNewFile|, |BufNew|,
-		|BufWritePost|.
+		It is called when |BufRead|, |BufNewFile|, |BufWritePost| or
+		deoplete is initialized.
 		It is useful to make cache.
 		It takes {self} and {context} as its parameter.
 
 					*deoplete-source-attribute-on_init*
 on_init		(Function)			(Optional)
-		It is called after the source is initialized.
+		It will be called before the source attribute is called.
 		It takes {self} and {context} as its parameter.
+		It should be used to initialize the internal variables.
 
 						*deoplete-source-attribute-__*
 __{name}	(Unknown)			(Optional)
@@ -780,6 +835,9 @@ __{name}	(Unknown)			(Optional)
 
 		complete_str		(String)
 			The complete string of current source.
+
+		candidates		(List)
+			The current candidates.
 
 		filetype		(String)
 			Current 'filetype'.
@@ -823,6 +881,38 @@ dup		(Number)			(Optional)
 ==============================================================================
 CREATE FILTER					*deoplete-create-filter*
 
+To create filter, you should read default filters implementation in
+rplugin/python3/deoplete/filter/*.py.
+
+The files are automatically loaded and deoplete creates new Filter class object.
+Filter class must extend Base class in ".base".
+
+Note: The filters must be created by Python3 language.
+
+------------------------------------------------------------------------------
+FILTER ATTRIBUTES				*deoplete-filter-attributes*
+
+					*deoplete-filter-attribute-__init__*
+__init__	(Function)
+		Source constructor.  It will be called in initializing.  It
+		must call Base constructor.  This function takes {self} and
+		{vim} as its parameters.
+
+					*deoplete-filter-attribute-name*
+name		(String)			(Required)
+		The name of a source.
+
+					*deoplete-filter-attribute-filter*
+filter
+		(Function)			(Required)
+		It is called to filter candidates.
+		It takes {self} and {context} as its parameter and returns a
+		list of {candidate}.
+		{candidate} must be Dictionary contains
+		|deoplete-candidate-attributes|.
+		Here, {context} is the context information when the source is
+		called(|deoplete-notation-{context}|).
+
 ==============================================================================
 EXTERNAL SOURCES				*deoplete-external-sources*
 
@@ -862,14 +952,18 @@ https://github.com/awetzel/elixir.nvim
 deoplete-jedi: "jedi" source for Python
 https://github.com/zchee/deoplete-jedi
 
-perlomni.vim: "perlomni" source for Perl
+perlomni.vim: "PerlOmni" source for Perl
 https://github.com/c9s/perlomni.vim
 
 deoplete-typescript: "typescript" source for typescript
 https://github.com/mhartington/deoplete-typescript
 
-deoplete-clang: "clang" source for C/C++
+deoplete-clang: "clang" source for C/C++/ObjC
 https://github.com/zchee/deoplete-clang
+
+deoplete-clang2: "clang2" source for C/C++/ObjC
+It is faster than deoplete-clang
+https://github.com/tweekmonster/deoplete-clang2
 
 async-clj-omni: "async_clj" source for Clojure
 https://github.com/SevereOverfl0w/async-clj-omni
@@ -907,6 +1001,15 @@ https://github.com/pbogut/deoplete-padawan
 webcomplete.vim: "webcomplete" source for browser opened pages
 https://github.com/thalesmello/webcomplete.vim
 
+deoplete-julia: "julia" source for Julia
+https://github.com/JuliaEditorSupport/deoplete-julia
+
+acid.nvim: "acid" source for Clojure
+https://github.com/hkupty/acid.nvim
+
+deoplete-omnisharp: "cs" source for C#
+https://github.com/Robzz/deoplete-omnisharp/
+
 ==============================================================================
 EXTERNAL PLUGINS				*deoplete-external-plugins*
 
@@ -941,7 +1044,52 @@ phpcomplete: PHP omnifunc
 https://github.com/shawncplus/phpcomplete.vim
 
 ==============================================================================
+VIM8 ASYNC API SUPPORT					*deoplete-vim8*
+
+Current deoplete does not support Vim8 asynchronous API.
+To support Vim8, neovim-python compatible API is needed.
+I have not plan to create it.
+But if it is created, I will support it.
+
+Q: Why neovim-python compatible API is needed?  Vim8 already implements
+asynchronous API.  It optimize your plugins, doesn't it?
+Q: Why neocomplete/unite.vim does not support Vim8 asynchronous API?
+
+A: Vim8 asynchronous API (or neovim job API) does replace vimproc plugin.
+No more vimproc dependency.  But it does not optimize my plugins.
+To optimize my plugins, I must rewrite the plugins and most functions must be
+executed in the separated process.  It is hard way though, it is already done.
+Yes, it is deoplete!
+
+Q: Why does not use the external interfaces?
+
+A: Current all external interfaces block your Vim.  The neovim remote plugin
+feature is not.
+
+Q: Why neovim remote plugin is better?
+
+A: It is the separated process and easy to communicate with Vim like the
+external interfaces.  I think it is the killer feature in neovim.  It is not
+well known though.
+
+Q: neovim-python compatible API can be implemented by Vim8 async API?
+
+A: Yes.  Vim8 implements JSON RPC.  I think you can create Python-Vim
+input/output interface using JSON RPC.  It is like MessagePack-RPC in neovim.
+
+Q: Why don't you implement neovim-python compatibility API using Vim8 JSON
+RPC?
+
+A: I have not much time.  You can implement it.  Why do I need to implement
+the feature?  neovim remote plugin feature already works!  It should be
+implemented by needed person.
+
+==============================================================================
 FAQ							*deoplete-faq*
+
+Q: deoplete can support Vim8?
+
+A: |deoplete-vim8|
 
 Q: deoplete does not work.
 
@@ -994,10 +1142,11 @@ A: Please use |b:deoplete_disable_auto_complete|.
 
 Q: Ruby omni completion does not work in neovim.
 
-A: It is feature.  Because, the default Ruby omni completion(RubyOmniComplete)
-uses if_ruby feature.  But neovim does not support it.  You should use
-vim-monster plugin for ruby completion.
-https://github.com/osyo-manga/vim-monster
+A: Ruby omni completion support was added to nvim 0.1.5. For it to work you
+will need to install the neovim gem.
+https://github.com/alexgenco/neovim-ruby
+
+	$ gem install neovim
 
 Q: I want to use C/C++ omni completion with deoplete.
 
@@ -1102,16 +1251,6 @@ A: >
 	call deoplete#custom#set('_', 'converters',
 	\ ['converter_remove_paren'])
 
-Q: Why deoplete checks the foldmethod?
-
-A: Please see the issue.
-https://github.com/Shougo/neocomplete.vim/issues/525
-
-It is too heavy to use deoplete (or other auto completion.) You should change
-'foldmethod' option or install FastFold plugin.
-
-https://github.com/Konfekt/FastFold
-
 Q: What is the difference of |g:deoplete#omni_patterns| and
 |g:deoplete#omni#input_patterns| ?
 
@@ -1181,6 +1320,14 @@ https://github.com/Shougo/deoplete.nvim/issues/309
 
 A: Please increase |g:deoplete#tag#cache_limit_size| value.
 
+Q: I want to debug the sources.
+
+A: Please enable logging feature like this.
+>
+		let g:deoplete#enable_profile = 1
+		call deoplete#enable_logging('DEBUG', 'deoplete.log')
+		call deoplete#custom#set('jedi', 'debug_enabled', 1)
+<
 ==============================================================================
 COMPATIBILITY					*deoplete-compatibility*
 
